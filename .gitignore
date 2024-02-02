@@ -1,0 +1,6 @@
+/gcp-creds.json
+/aws-creds.conf
+/bin
+/.env
+/kubeconfig.yaml
+/gke_gcloud_auth_plugin_cache

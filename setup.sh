@@ -12,8 +12,6 @@ echo "
 |Name            |Required             |More info                                          |
 |----------------|---------------------|---------------------------------------------------|
 |Docker          |Yes                  |'https://docs.docker.com/engine/install'           |
-|gitHub CLI      |Yes                  |'https://cli.github.com/'                          |
-|git CLI         |Yes                  |'https://git-scm.com/downloads'                    |
 |helm CLI        |If using Helm        |'https://helm.sh/docs/intro/install/'              |
 |kubectl CLI     |Yes                  |'https://kubernetes.io/docs/tasks/tools/#kubectl'  |
 |kind CLI        |Yes                  |'https://kind.sigs.k8s.io/docs/user/quick-start/#installation'|
@@ -23,8 +21,6 @@ echo "
 |gke-gcloud-auth-plugin|If using Google Cloud|'https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke'|
 |AWS account with admin permissions|If using AWS|'https://aws.amazon.com'                  |
 |AWS CLI         |If using AWS         |'https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html'|
-|Azure account with admin permissions|If using Azure|'https://azure.microsoft.com'         |
-|az CLI          |If using Azure       |'https://learn.microsoft.com/cli/azure/install-azure-cli'|
 
 If you are running this script from **Nix shell**, most of the requirements are already set with the exception of **Docker** and the **hyperscaler account**.
 " | gum format
@@ -41,16 +37,13 @@ rm -f .env
 
 echo "# Variables" | gum format
 
-echo "## Which Hyperscaler do you want to use?" | gum format
-
-HYPERSCALER=$(gum choose "google" "aws" "azure")
 echo "export HYPERSCALER=$HYPERSCALER" >> .env
 
-###########
-# Cluster #
-###########
+#########################
+# Control Plane Cluster #
+#########################
 
-echo "# Cluster" | gum format
+echo "# Control Plane Cluster" | gum format
 
 kind create cluster
 
@@ -66,6 +59,8 @@ helm upgrade --install crossplane crossplane-stable/crossplane \
     --namespace crossplane-system --create-namespace --wait
 
 kubectl apply --filename crossplane-packages/dot-sql.yaml
+
+kubectl apply --filename crossplane-packages/dot-kubernetes.yaml
 
 kubectl apply --filename crossplane-packages/helm-incluster.yaml
 
@@ -92,11 +87,25 @@ if [[ "$HYPERSCALER" == "google" ]]; then
 
     # APIs
 
-echo "## Open https://console.cloud.google.com/apis/library/sqladmin.googleapis.com?project=$PROJECT_ID in a browser and *ENABLE* the API." \
-        | gum format
+    open "https://console.cloud.google.com/billing/linkedaccount?project=$PROJECT_ID"
 
-    gum input --placeholder "
-Press the enter key to continue."
+    echo "## LINK A BILLING ACCOUNT" | gum format
+    gum input --placeholder "Press the enter key to continue."
+
+    open "https://console.cloud.google.com/marketplace/product/google/container.googleapis.com?project=$PROJECT_ID"
+    
+    echo "## *ENABLE* the API" | gum format
+    gum input --placeholder "Press the enter key to continue."
+
+    open "https://console.cloud.google.com/apis/library/sqladmin.googleapis.com?project=$PROJECT_ID"
+
+    echo "## *ENABLE* the API" | gum format
+    gum input --placeholder "Press the enter key to continue."
+
+    open "https://console.cloud.google.com/marketplace/product/google/secretmanager.googleapis.com?project=$PROJECT_ID"
+
+    echo "## *ENABLE* the API" | gum format
+    gum input --placeholder "Press the enter key to continue."
 
     # Service Account (general)
 
@@ -121,10 +130,7 @@ Press the enter key to continue."
         crossplane-packages/google-config.yaml
 
     yq --inplace ".spec.projectID = \"$PROJECT_ID\"" \
-        infra/google-config.yaml
-
-    yq --inplace ".spec.projectID = \"$PROJECT_ID\"" \
-        infra-waves/google-config.yaml
+        crossplane-packages/google-config.yaml
 
     kubectl --namespace crossplane-system \
         create secret generic gcp-creds \
@@ -156,28 +162,63 @@ aws_secret_access_key = $AWS_SECRET_ACCESS_KEY
 
     kubectl apply --filename crossplane-packages/aws-config.yaml
 
-else
+fi
 
-    AZURE_TENANT_ID=$(gum input --placeholder "Azure Tenant ID" --value "$AZURE_TENANT_ID")
+kubectl --namespace a-team apply \
+    --filename cluster/$HYPERSCALER.yaml
 
-    az login --tenant $AZURE_TENANT_ID
+##################
+# Atlas Operator #
+##################
 
-    export SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+echo "# Atlas Operator" | gum format
 
-    az ad sp create-for-rbac --sdk-auth --role Owner --scopes /subscriptions/$SUBSCRIPTION_ID | tee azure-creds.json
+helm upgrade --install atlas-operator \
+    oci://ghcr.io/ariga/charts/atlas-operator \
+    --namespace atlas-operator --create-namespace --wait
 
-    kubectl --namespace crossplane-system \
-        create secret generic azure-creds \
-        --from-file creds=./azure-creds.json
+####################
+# External Secrets #
+####################
 
-    kubectl apply --filename crossplane-packages/azure-config.yaml
+echo "# External Secrets" | gum format
 
-    DB_NAME=my-db-$(date +%Y%m%d%H%M%S)
+helm upgrade --install \
+    external-secrets external-secrets/external-secrets \
+    --namespace external-secrets --create-namespace --wait
 
-    yq --inplace ".spec.id = \"$DB_NAME\"" \
-        db/azure.yaml
+if [[ "$HYPERSCALER" == "google" ]]; then
+
+    yq --inplace \
+        ".spec.provider.gcpsm.projectID = \"$PROJECT_ID\"" \
+        external-secrets/google.yaml
+
+    echo "{\"password\": \"IWillNeverTell\" }" \
+        | gcloud secrets --project $PROJECT_ID \
+        create db-password --data-file=-
+
+elif [[ "$HYPERSCALER" == "aws" ]]; then
+
+    set +e
+    aws secretsmanager create-secret \
+        --name db-password --region us-east-1 \
+        --secret-string "{\"password\": \"IWillNeverTell\" }"
+    set -e
 
 fi
+
+kubectl apply --filename external-secrets/$HYPERSCALER.yaml
+
+###############
+# App Cluster #
+###############
+
+echo "# App Cluster" | gum format
+
+echo "## Waiting for the app cluster (<= 20 min.)..." | gum format
+
+kubectl --namespace a-team wait --for=condition=ready \
+    clusterclaim cluster --timeout=1200s
 
 ########
 # Misc #

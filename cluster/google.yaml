@@ -1,0 +1,34 @@
+apiVersion: devopstoolkitseries.com/v1alpha1
+kind: ClusterClaim
+metadata:
+  name: cluster
+spec:
+  id: a-team-cluster
+  compositionSelector:
+    matchLabels:
+      provider: google
+      cluster: gke
+  parameters:
+    nodeSize: small
+    minNodeCount: 1
+    namespaces:
+      - dev
+      - production
+      - crossplane-system
+    apps:
+      externalSecrets:
+        enabled: true
+        store: true
+        googleCredentialsKey: creds
+        secrets:
+          - fromSecret: registry-auth
+            toSecret: push-secret
+            toNamespace: production
+            type: kubernetes.io/dockerconfigjson
+      dapr:
+        enabled: true
+    creds:
+      name: gcp-creds
+      namespace: crossplane-system
+      keys:
+        - creds

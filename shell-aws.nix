@@ -13,8 +13,6 @@ pkgs.mkShell {
     yq-go
     bat
     awscli2
-    google-cloud-sdk
-    azure-cli
   ];
   shellHook =
   ''
