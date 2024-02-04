@@ -220,6 +220,18 @@ echo "## Waiting for the app cluster (<= 20 min.)..." | gum format
 kubectl --namespace a-team wait --for=condition=ready \
     clusterclaim cluster --timeout=1200s
 
+if [[ "$HYPERSCALER" == "google" ]]; then
+
+    gcloud container clusters get-credentials a-team-cluster \
+        --region us-east1 --project $PROJECT_ID
+
+elif [[ "$HYPERSCALER" == "aws" ]]; then
+
+    aws eks update-kubeconfig --region us-east-1 \
+        --name a-team-cluster --kubeconfig $KUBECONFIG
+
+fi
+
 ########
 # Misc #
 ########
