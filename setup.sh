@@ -71,7 +71,7 @@ echo "## Waiting for Crossplane Packages to be ready..." | gum format
 sleep 60
 
 kubectl wait --for=condition=healthy provider.pkg.crossplane.io \
-    --all --timeout=600s
+    --all --timeout=1200s
 
 if [[ "$HYPERSCALER" == "google" ]]; then
 
@@ -183,6 +183,10 @@ helm upgrade --install atlas-operator \
 
 echo "# External Secrets" | gum format
 
+helm repo add external-secrets https://charts.external-secrets.io
+
+helm repo update
+
 helm upgrade --install \
     external-secrets external-secrets/external-secrets \
     --namespace external-secrets --create-namespace --wait
@@ -222,13 +226,14 @@ kubectl --namespace a-team wait --for=condition=ready \
 
 if [[ "$HYPERSCALER" == "google" ]]; then
 
-    gcloud container clusters get-credentials a-team-cluster \
+    KUBECONFIG=$PWD/kubeconfig.yaml gcloud container \
+        clusters get-credentials a-team-cluster \
         --region us-east1 --project $PROJECT_ID
 
 elif [[ "$HYPERSCALER" == "aws" ]]; then
 
     aws eks update-kubeconfig --region us-east-1 \
-        --name a-team-cluster --kubeconfig $KUBECONFIG
+        --name a-team-cluster --kubeconfig kubeconfig.yaml
 
 fi
 

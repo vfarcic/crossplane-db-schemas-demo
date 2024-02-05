@@ -61,12 +61,22 @@ elif [[ "$HYPERSCALER" == "aws" ]]; then
 
     # Crossplane will delete the secret, but, by default, AWS
     #   only schedules it for deletion. 
-    # The command that follows removes the secret immediately
+    # The command that follows removes the secrets immediately
     #   just in case you want to re-run the demo.
+    set +e
     aws secretsmanager delete-secret --secret-id my-db \
         --region us-east-1 --force-delete-without-recovery \
-        --no-cli-pager
+        --no-cli-page
+    aws secretsmanager delete-secret --secret-id db-password \
+        --region us-east-1 --force-delete-without-recovery \
+        --no-cli-page
+    aws secretsmanager delete-secret --secret-id registry-auth \
+        --region us-east-1 --force-delete-without-recovery \
+        --no-cli-page
+    set -e
 
 fi
 
 kind delete cluster
+
+echo "## Destruction complete" | gum format
