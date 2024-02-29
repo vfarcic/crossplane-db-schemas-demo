@@ -13,6 +13,7 @@ pkgs.mkShell {
     yq-go
     bat
     awscli2
+    teller
   ];
   shellHook =
   ''
